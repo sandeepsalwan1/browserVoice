@@ -92,10 +92,10 @@ class VoiceBrowserServer:
         """Text-to-speech with brevity and interruption"""
         logger.info(f'🔊 {text}')
         
-        # Send to WebSocket clients
+        # Send to WebSocket clients for frontend to speak
         asyncio.create_task(self.broadcast_to_all({
             "type": "speak",
-            "data": {"text": text}
+            "data": {"text": text, "short": short}
         }))
         
         # Truncate long outputs if requested
@@ -189,16 +189,24 @@ class VoiceBrowserServer:
             return
         
         # Check for cancel command
-        if text in ['cancel', 'stop', 'cancel that', 'never mind'] and self.is_processing:
+        if text in ['cancel', 'stop', 'cancel that', 'never mind', 'interrupt', 'quit'] and self.is_processing:
+            logger.info("Cancel command received")
             if self.current_agent:
-                self.current_agent.stop()
-                self.speak('Cancelling')
-                self.is_processing = False
-                await self.broadcast_to_all({
-                    "type": "status",
-                    "data": {"message": "Task cancelled"}
-                })
-                return
+                try:
+                    self.current_agent.stop()
+                    logger.info("Agent stopped successfully")
+                except Exception as e:
+                    logger.error(f"Error stopping agent: {e}")
+                
+            self.interrupt_speech = True  # Stop any ongoing speech
+            self.speak('Cancelling task')
+            self.is_processing = False
+            self.current_agent = None
+            await self.broadcast_to_all({
+                "type": "status",
+                "data": {"message": "Task cancelled"}
+            })
+            return
         
         # Exit commands
         if text in ['exit browser', 'quit browser', 'goodbye browser', 'shutdown']:
@@ -222,13 +230,21 @@ class VoiceBrowserServer:
         if message_type == 'command':
             await self.execute_command(text)
         elif message_type == 'cancel':
+            logger.info("Cancel command received via WebSocket")
             if self.current_agent and self.is_processing:
-                self.current_agent.stop()
-                self.is_processing = False
-                await self.send_to_client(client_id, {
-                    "type": "status",
-                    "data": {"message": "Task cancelled"}
-                })
+                try:
+                    self.current_agent.stop()
+                    logger.info("Agent stopped via WebSocket")
+                except Exception as e:
+                    logger.error(f"Error stopping agent via WebSocket: {e}")
+                
+            self.interrupt_speech = True  # Stop any ongoing speech
+            self.is_processing = False
+            self.current_agent = None
+            await self.send_to_client(client_id, {
+                "type": "status",
+                "data": {"message": "Task cancelled"}
+            })
         elif message_type == 'interrupt':
             self.interrupt_speech = True
     
@@ -267,14 +283,27 @@ class VoiceBrowserServer:
             result = await self.current_agent.run()
             
             if result.final_result():
-                summary = self.summarize_result(result.final_result())
-                self.speak(f'Done. {summary}', short=True)
+                # Get the full result for accessibility
+                full_result = result.final_result()
+                summary = self.summarize_result(full_result)
+                
+                # Send both summary and full result to frontend
+                # Frontend will handle text-to-speech
+                await self.broadcast_to_all({
+                    "type": "result",
+                    "data": {"text": full_result}  # Send full result for TTS
+                })
+                
                 await self.broadcast_to_all({
                     "type": "status",
                     "data": {"message": f"Completed: {summary}"}
                 })
             else:
-                self.speak('Done')
+                # Even if no explicit result, notify completion
+                await self.broadcast_to_all({
+                    "type": "result",
+                    "data": {"text": "Task completed successfully. The requested action has been performed."}
+                })
                 await self.broadcast_to_all({
                     "type": "status",
                     "data": {"message": "Task completed"}
@@ -282,7 +311,6 @@ class VoiceBrowserServer:
                 
         except Exception as e:
             error_msg = f'Error: {str(e)[:100]}'
-            self.speak(error_msg, short=True)
             logger.error(f'Agent error: {str(e)}')
             await self.broadcast_to_all({
                 "type": "error",
@@ -291,18 +319,18 @@ class VoiceBrowserServer:
         finally:
             self.current_agent = None
             self.is_processing = False
-            self.speak('Ready')
             await self.broadcast_to_all({
                 "type": "status",
                 "data": {"message": "Ready for next command"}
             })
     
     def summarize_result(self, result_text: str) -> str:
-        """Create a brief summary of the result"""
+        """Create a brief summary of the result for status messages"""
         if not result_text or len(result_text) < 50:
             return result_text
         
         # Extract key information from long results
+        # Keep first sentence or first 100 chars for status
         if len(result_text) > 200:
             first_period = result_text.find('.')
             if 10 < first_period < 100:
