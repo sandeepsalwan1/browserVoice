@@ -1,0 +1,56 @@
+# Core dependencies for Voice Browser Backend
+# FastAPI and server
+fastapi==0.115.12
+uvicorn[standard]==0.24.0
+starlette==0.46.2
+websockets==12.0
+
+# Browser automation
+browser-use @ git+https://github.com/browser-use/browser-use.git@a04def7a37d2992d32b686b628a5603cfe73ea24
+playwright==1.52.0
+patchright==1.52.4
+
+# AI and LLM
+openai==1.82.0
+anthropic==0.52.0
+langchain==0.3.22
+langchain-core==0.3.49
+langchain-openai==0.3.11
+langchain-anthropic==0.3.3
+langsmith==0.1.147
+
+# HTTP and networking
+httpx==0.28.1
+httpcore==1.0.9
+requests==2.32.3
+urllib3==2.4.0
+
+# Data processing
+pydantic==2.10.6
+pydantic-core==2.27.2
+numpy==2.2.6
+beautifulsoup4==4.13.4
+
+# Utilities
+python-dotenv==1.1.0
+click==8.2.1
+tqdm==4.67.1
+tenacity==8.5.0
+typing-extensions==4.13.2
+
+# Security and auth
+certifi==2025.4.26
+charset-normalizer==3.4.2
+idna==3.10
+
+# Audio processing (Linux compatible)
+# Note: PyAudio may need system packages on Linux
+SpeechRecognition==3.10.0
+
+# Database (if needed)
+# psycopg2-binary==2.9.10
+# SQLAlchemy==2.0.41
+
+# Development and testing
+# pytest
+# pytest-asyncio
