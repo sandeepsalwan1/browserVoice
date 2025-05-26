@@ -81,7 +81,7 @@ The backend will be available at `http://localhost:8000`
 ### Terminal 2 - Start Frontend
 
 ```bash
-cd "Cofounder-Labs interactive-browser-use main frontend"
+cd web
 npm run dev
 # or
 pnpm dev
