@@ -1,0 +1,197 @@
+# Production Render Blueprint for Voice Browser Application
+# This file defines the production deployment configuration with scaling and performance optimizations
+
+services:
+  # Backend API Service (FastAPI with WebSocket support) - Production Configuration
+  - name: voice-browser-backend-prod
+    type: web
+    runtime: python
+    repo: https://github.com/sandeepsalwan1/browserVoice.git  # Replace with your actual repo URL
+    rootDir: ./backend
+    plan: standard  # Production-grade instance
+    region: oregon
+    autoDeployTrigger: checksPass  # Deploy only when CI checks pass
+    
+    # Build configuration optimized for production
+    buildCommand: |
+      pip install --upgrade pip
+      pip install -r requirements.txt
+      playwright install chromium --with-deps
+      
+    startCommand: uvicorn voice_browser_server:app --host 0.0.0.0 --port $PORT --workers 2
+    healthCheckPath: /
+    maxShutdownDelaySeconds: 90  # Longer shutdown for graceful WebSocket disconnections
+    
+    # Auto-scaling configuration for production load
+    scaling:
+      minInstances: 2  # Always have 2 instances running
+      maxInstances: 5  # Scale up to 5 instances under load
+      targetCPUPercent: 70  # Scale when CPU hits 70%
+      targetMemoryPercent: 80  # Scale when memory hits 80%
+    
+    # Environment variables for production backend
+    envVars:
+      # OpenAI API Key - REQUIRED for voice processing
+      - key: OPENAI_API_KEY
+        sync: false  # Will prompt for this during deployment
+      
+      # Python environment settings for production
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      
+      - key: PYTHONPATH
+        value: "/opt/render/project/src"
+      
+      # Playwright browser settings optimized for production
+      - key: PLAYWRIGHT_BROWSERS_PATH
+        value: "/opt/render/project/.playwright"
+      
+      - key: PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD
+        value: "0"
+      
+      # FastAPI production settings
+      - key: PORT
+        value: "8000"
+      
+      - key: WORKERS
+        value: "2"
+      
+      # Performance and logging settings
+      - key: LOG_LEVEL
+        value: "INFO"
+      
+      - key: WEB_CONCURRENCY
+        value: "2"
+      
+      # CORS settings for frontend connection
+      - key: FRONTEND_URL
+        fromService:
+          name: voice-browser-frontend-prod
+          type: web
+          property: host
+      
+      # Production optimizations
+      - key: OPENAI_MAX_RETRIES
+        value: "3"
+      
+      - key: BROWSER_TIMEOUT
+        value: "30000"
+    
+    # Production custom domain
+    domains:
+      - api-voice-browser.yourdomain.com  # Replace with your domain
+
+  # Frontend Web Service (Next.js) - Production Configuration  
+  - name: voice-browser-frontend-prod
+    type: web
+    runtime: node
+    repo: https://github.com/sandeepsalwan1/browserVoice.git  # Replace with your actual repo URL
+    rootDir: ./web
+    plan: standard  # Production-grade instance
+    region: oregon
+    autoDeployTrigger: checksPass  # Deploy only when CI checks pass
+    
+    # Build configuration optimized for production
+    buildCommand: |
+      npm ci --only=production
+      npm run build
+      
+    startCommand: npm start
+    healthCheckPath: /
+    
+    # Auto-scaling configuration for production load
+    scaling:
+      minInstances: 2  # Always have 2 instances running
+      maxInstances: 4  # Scale up to 4 instances under load
+      targetCPUPercent: 75  # Scale when CPU hits 75%
+    
+    # Environment variables for production frontend
+    envVars:
+      # Backend API URL for WebSocket connection
+      # This dynamically references the backend service
+      - key: NEXT_PUBLIC_WS_URL
+        value: wss://voice-browser-backend-prod.onrender.com/ws
+      
+      # Production optimizations
+      - key: NODE_ENV
+        value: production
+      
+      # Next.js production settings
+      - key: PORT
+        value: "3000"
+      
+      - key: NEXT_TELEMETRY_DISABLED
+        value: "1"
+      
+      # Performance settings
+      - key: NODE_OPTIONS
+        value: "--max-old-space-size=1024"
+      
+      # Security headers
+      - key: FORCE_HTTPS
+        value: "true"
+      
+      # Shared environment group
+      - fromGroup: voice-browser-production
+    
+    # Production custom domains
+    domains:
+      - voice-browser.yourdomain.com  # Replace with your domain
+      - www.voice-browser.yourdomain.com
+
+# Environment variable groups for shared production configuration
+envVarGroups:
+  - name: voice-browser-production
+    envVars:
+      # Shared production application settings
+      - key: APP_NAME
+        value: "Voice Browser Pro"
+      
+      - key: APP_VERSION
+        value: "1.0.0"
+      
+      - key: APP_ENV
+        value: "production"
+      
+      # Production logging and monitoring
+      - key: LOG_LEVEL
+        value: "INFO"
+      
+      - key: ENABLE_METRICS
+        value: "true"
+      
+      # Security settings
+      - key: SECURE_HEADERS
+        value: "true"
+      
+      # Performance settings
+      - key: CACHE_TTL
+        value: "3600"
+
+# Preview environment settings (disabled for production blueprint)
+previews:
+  generation: off  # Disable previews for production blueprint
+
+# Production deployment notes:
+#
+# 1. This configuration is optimized for production workloads
+# 2. Uses 'standard' instance types for better performance and reliability
+# 3. Includes auto-scaling to handle variable load
+# 4. Deploys only when CI checks pass for safer deployments
+# 5. Includes custom domain configuration
+# 6. Uses production-optimized build and start commands
+# 7. Has enhanced security and performance settings
+# 8. Includes comprehensive monitoring and logging configuration
+#
+# Before using this configuration:
+# 1. Replace 'your-username' and domain names with actual values
+# 2. Set up your custom domains in your DNS provider
+# 3. Configure SSL certificates in Render Dashboard
+# 4. Set up monitoring and alerts
+# 5. Test thoroughly in staging environment first
+#
+# Cost implications:
+# - Standard instances: ~$25/month per service
+# - Auto-scaling can increase costs during high load
+# - Consider setting max instances based on budget
+# - Monitor usage and adjust scaling parameters as needed 
