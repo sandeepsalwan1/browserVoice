@@ -7,12 +7,11 @@ services:
     type: web
     runtime: python
     repo: https://github.com/sandeepsalwan1/browserVoice.git  # Replace with your actual repo URL
-    rootDir: ./backend
     plan: starter  # Upgrade to standard or higher for production
     region: oregon
     autoDeployTrigger: commit  # Auto-deploy on commits to main branch
-    buildCommand: pip install --upgrade pip && pip install -r requirements.txt && playwright install chromium --with-deps
-    startCommand: uvicorn voice_browser_server:app --host 0.0.0.0 --port $PORT
+    buildCommand: cd backend && pip install --upgrade pip && pip install -r requirements.txt && playwright install chromium --with-deps
+    startCommand: cd backend && uvicorn voice_browser_server:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /
     maxShutdownDelaySeconds: 60
     
