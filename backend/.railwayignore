@@ -1,0 +1,8 @@
+# Ignore frontend files
+../web/
+../test_env/
+../.next/
+../node_modules/
+../package*.json
+../.git/
+../docs.md 
