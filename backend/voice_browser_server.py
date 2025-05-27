@@ -85,6 +85,8 @@ class VoiceBrowserServer:
     
     async def broadcast_to_all(self, message: Dict[str, Any]):
         """Send message to all connected WebSocket clients"""
+        logger.info(f"📡 Broadcasting to {len(self.active_connections)} clients: {message['type']} - {str(message['data'])[:100]}")
+        
         for client_id in list(self.active_connections.keys()):
             await self.send_to_client(client_id, message)
     
@@ -251,6 +253,7 @@ class VoiceBrowserServer:
     async def execute_command(self, command: str):
         """Execute a browser command"""
         if self.is_processing:
+            logger.warning(f"Command '{command}' ignored - already processing")
             return
         
         # Check if browser is initialized
@@ -265,8 +268,9 @@ class VoiceBrowserServer:
             return
         
         self.is_processing = True
-        self.speak(f'Running: {command}', short=True)
+        logger.info(f"🚀 Starting command execution: {command}")
         
+        # Send initial processing status (no speech)
         await self.broadcast_to_all({
             "type": "status",
             "data": {"message": f"Processing: {command}"}
@@ -281,24 +285,31 @@ class VoiceBrowserServer:
             )
             
             result = await self.current_agent.run()
+            logger.info(f"Agent completed. Result available: {bool(result.final_result())}")
             
             if result.final_result():
                 # Get the full result for accessibility
                 full_result = result.final_result()
                 summary = self.summarize_result(full_result)
                 
-                # Send both summary and full result to frontend
-                # Frontend will handle text-to-speech
+                logger.info(f"📤 Sending result to frontend (length: {len(full_result)} chars)")
+                
+                # Send ONLY the result message for speech synthesis
+                # The frontend will handle speaking this
                 await self.broadcast_to_all({
                     "type": "result",
-                    "data": {"text": full_result}  # Send full result for TTS
+                    "data": {"text": full_result}
                 })
                 
+                # Send a separate status message (no speech) for UI display
                 await self.broadcast_to_all({
                     "type": "status",
                     "data": {"message": f"Completed: {summary}"}
                 })
+                
+                logger.info(f"✅ Task completed successfully. Summary: {summary}")
             else:
+                logger.info("📤 No explicit result, sending generic completion message")
                 # Even if no explicit result, notify completion
                 await self.broadcast_to_all({
                     "type": "result",
@@ -311,7 +322,7 @@ class VoiceBrowserServer:
                 
         except Exception as e:
             error_msg = f'Error: {str(e)[:100]}'
-            logger.error(f'Agent error: {str(e)}')
+            logger.error(f'❌ Agent error: {str(e)}')
             await self.broadcast_to_all({
                 "type": "error",
                 "data": {"message": error_msg}
@@ -319,6 +330,9 @@ class VoiceBrowserServer:
         finally:
             self.current_agent = None
             self.is_processing = False
+            logger.info(f"🏁 Command execution finished: {command}")
+            
+            # Send ready status (no speech)
             await self.broadcast_to_all({
                 "type": "status",
                 "data": {"message": "Ready for next command"}

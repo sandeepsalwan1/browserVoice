@@ -20,6 +20,10 @@ export default function VoiceBrowserUI() {
   const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([])
   const [selectedVoiceIndex, setSelectedVoiceIndex] = useState<number>(0)
   const [speechEnabled, setSpeechEnabled] = useState(false)
+  
+  // Message deduplication
+  const processedMessagesRef = useRef<Set<string>>(new Set())
+  const lastResultMessageRef = useRef<string>('')
 
   // Initialize speech synthesis
   const initializeSpeech = () => {
@@ -161,16 +165,51 @@ export default function VoiceBrowserUI() {
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data)
+          console.log('📨 Received WebSocket message:', data.type, data.data)
+          
+          // Create a unique message ID for deduplication
+          const messageId = `${data.type}-${JSON.stringify(data.data)}-${Date.now()}`
+          const messageHash = `${data.type}-${JSON.stringify(data.data)}`
+          
+          // Check for duplicate messages (same type and content within 2 seconds)
+          const now = Date.now()
+          const messageWithTime = `${messageHash}-${Math.floor(now / 2000)}` // 2-second window
+          
+          if (processedMessagesRef.current.has(messageWithTime)) {
+            console.log('🔄 Duplicate message detected within time window, skipping:', data.type)
+            return
+          }
+          
+          // Add to processed messages (keep only last 50 to prevent memory leak)
+          processedMessagesRef.current.add(messageWithTime)
+          if (processedMessagesRef.current.size > 50) {
+            const firstItem = Array.from(processedMessagesRef.current)[0]
+            if (firstItem) {
+              processedMessagesRef.current.delete(firstItem)
+            }
+          }
           
           if (data.type === 'speak') {
+            console.log('🔊 Processing speak message:', data.data.text.substring(0, 50) + '...')
             // Always read aloud assistant responses for accessibility
             speak(data.data.text, false, true)
             addMessage('assistant', data.data.text)
           } else if (data.type === 'result') {
+            console.log('📋 Processing result message:', data.data.text.substring(0, 50) + '...')
+            
+            // Additional check for result message deduplication
+            if (lastResultMessageRef.current === data.data.text) {
+              console.log('🔄 Duplicate result message detected, skipping speech')
+              addMessage('result', data.data.text)
+              return
+            }
+            lastResultMessageRef.current = data.data.text
+            
             // Read results aloud with higher priority
             speak(data.data.text, false, true)
             addMessage('result', data.data.text)
           } else if (data.type === 'status') {
+            console.log('📊 Processing status message:', data.data.message)
             addMessage('status', data.data.message)
             if (data.data.message.includes('Processing:')) {
               setIsProcessing(true)
@@ -178,6 +217,7 @@ export default function VoiceBrowserUI() {
               setIsProcessing(false)
             }
           } else if (data.type === 'error') {
+            console.log('❌ Processing error message:', data.data.message)
             addMessage('error', data.data.message)
             speak(`Error: ${data.data.message}`, true)
             setIsProcessing(false)
@@ -270,75 +310,126 @@ export default function VoiceBrowserUI() {
   }
 
   const speak = (text: string, isSystem: boolean = false, priority: boolean = false) => {
-    console.log('Attempting to speak:', text)
+    console.log('🎤 Speak function called:', {
+      text: text.substring(0, 50) + (text.length > 50 ? '...' : ''),
+      isSystem,
+      priority,
+      currentlySpeaking: isSpeaking,
+      speechSynthesisSupported: 'speechSynthesis' in window,
+      availableVoicesCount: availableVoices.length,
+      selectedVoiceIndex: selectedVoiceIndex
+    })
     
     if (!('speechSynthesis' in window)) {
-      console.error('Speech synthesis not supported')
+      console.error('❌ Speech synthesis not supported')
       return
     }
 
     // Cancel current speech if this is a priority message or interruption
     if (priority || (isSpeaking && !isSystem)) {
-      console.log('Cancelling previous speech')
+      console.log('🛑 Cancelling previous speech for new message')
       window.speechSynthesis.cancel()
+      setIsSpeaking(false)
+      currentUtteranceRef.current = null
+      
+      // Wait a bit for cancellation to complete
+      setTimeout(() => {
+        startSpeech(text, isSystem, priority)
+      }, 100)
+      return
     }
     
+    // If already speaking and this is not a priority message, skip
+    if (isSpeaking && !priority) {
+      console.log('⏭️ Skipping speech - already speaking and not priority')
+      return
+    }
+    
+    startSpeech(text, isSystem, priority)
+  }
+  
+  const startSpeech = (text: string, isSystem: boolean = false, priority: boolean = false) => {
     const utterance = new SpeechSynthesisUtterance(text)
     utterance.rate = 0.8  // Slightly slower for better clarity
     utterance.pitch = 1
     utterance.volume = 1
     
-    // Set selected voice
-    if (availableVoices.length > 0 && selectedVoiceIndex < availableVoices.length) {
-      utterance.voice = availableVoices[selectedVoiceIndex]
-      console.log('Using voice:', utterance.voice?.name)
+    // Ensure we have voices loaded
+    if (availableVoices.length === 0) {
+      console.log('🔄 No voices loaded yet, loading voices...')
+      const voices = window.speechSynthesis.getVoices()
+      if (voices.length > 0) {
+        setAvailableVoices(voices)
+        // Find a good default voice
+        const preferredIndex = voices.findIndex(voice => 
+          voice.name.includes('Samantha') || 
+          voice.name.includes('Victoria') || 
+          voice.name.includes('Karen') ||
+          voice.name.includes('Female') ||
+          voice.name.includes('Google US English') ||
+          voice.name.includes('Microsoft Zira') ||
+          voice.name.includes('Alex') ||
+          voice.default
+        )
+        if (preferredIndex !== -1) {
+          setSelectedVoiceIndex(preferredIndex)
+          utterance.voice = voices[preferredIndex]
+          console.log('🗣️ Auto-selected voice:', voices[preferredIndex].name)
+        }
+      }
     } else {
-      console.log('No voice selected, using default')
+      // Set selected voice
+      if (selectedVoiceIndex < availableVoices.length) {
+        utterance.voice = availableVoices[selectedVoiceIndex]
+        console.log('🗣️ Using voice:', utterance.voice?.name)
+      } else {
+        console.log('🗣️ Invalid voice index, using default')
+      }
     }
     
     utterance.onstart = () => {
-      console.log('Speech started')
+      console.log('▶️ Speech started:', text.substring(0, 30) + '...')
       setIsSpeaking(true)
       currentUtteranceRef.current = utterance
     }
     
     utterance.onend = () => {
-      console.log('Speech ended')
+      console.log('⏹️ Speech ended')
       setIsSpeaking(false)
       currentUtteranceRef.current = null
     }
     
     utterance.onerror = (event) => {
-      console.error('Speech error:', event)
+      console.error('❌ Speech error:', event)
       setIsSpeaking(false)
       currentUtteranceRef.current = null
+      
+      // Try again with a different approach if it's a network error
+      if (event.error === 'network' || event.error === 'synthesis-failed') {
+        console.log('🔄 Retrying speech with simpler settings...')
+        setTimeout(() => {
+          const retryUtterance = new SpeechSynthesisUtterance(text)
+          retryUtterance.rate = 1
+          retryUtterance.pitch = 1
+          retryUtterance.volume = 1
+          // Don't set a specific voice for retry
+          window.speechSynthesis.speak(retryUtterance)
+        }, 500)
+      }
     }
     
     // For Safari and other browsers that may need this
     utterance.onboundary = (event) => {
-      console.log('Speech boundary:', event.name)
+      console.log('📍 Speech boundary:', event.name)
     }
     
     try {
-      console.log('Starting speech synthesis')
+      console.log('🚀 Starting speech synthesis')
       window.speechSynthesis.speak(utterance)
       
-      // Fallback: check if speech actually started
-      setTimeout(() => {
-        if (!isSpeaking && utterance) {
-          console.log('Speech may not have started, trying again...')
-          // Try speaking a shorter test first
-          if (text.length > 50) {
-            const shortText = text.substring(0, 50) + '...'
-            const testUtterance = new SpeechSynthesisUtterance(shortText)
-            testUtterance.rate = 0.8
-            window.speechSynthesis.speak(testUtterance)
-          }
-        }
-      }, 1000)
-      
     } catch (error) {
-      console.error('Error starting speech:', error)
+      console.error('❌ Error starting speech:', error)
+      setIsSpeaking(false)
     }
   }
 
