@@ -1,8 +1,5 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Enable static exports for better deployment compatibility
-  output: 'standalone',
-  
   // Environment variables for API connection
   env: {
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'https://voice-browser-frontend-production.up.railway.app',
