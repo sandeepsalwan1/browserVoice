@@ -284,7 +284,6 @@ class VoiceBrowserServer:
                 llm=self.llm,
             )
             
-            logger.info("🤖 Starting agent execution...")
             result = await self.current_agent.run()
             logger.info(f"Agent completed. Result available: {bool(result.final_result())}")
             
@@ -294,7 +293,6 @@ class VoiceBrowserServer:
                 summary = self.summarize_result(full_result)
                 
                 logger.info(f"📤 Sending result to frontend (length: {len(full_result)} chars)")
-                logger.info(f"📋 Result preview: {full_result[:200]}...")
                 
                 # Send ONLY the result message for speech synthesis
                 # The frontend will handle speaking this
@@ -311,36 +309,20 @@ class VoiceBrowserServer:
                 
                 logger.info(f"✅ Task completed successfully. Summary: {summary}")
             else:
-                logger.warning("📤 No explicit result from agent - this might indicate a browser issue")
-                # Check if we have any browser-related errors
-                browser_status = "Browser status unknown"
-                try:
-                    if self.current_agent and hasattr(self.current_agent, 'browser'):
-                        browser_status = f"Browser available: {self.current_agent.browser is not None}"
-                except:
-                    browser_status = "Browser check failed"
-                
-                logger.info(f"🔍 {browser_status}")
-                
-                # Send a more informative message
+                logger.info("📤 No explicit result, sending generic completion message")
+                # Even if no explicit result, notify completion
                 await self.broadcast_to_all({
                     "type": "result",
-                    "data": {"text": f"Task completed but no specific result was returned. This might be due to browser limitations in the deployment environment. {browser_status}"}
+                    "data": {"text": "Task completed successfully. The requested action has been performed."}
                 })
                 await self.broadcast_to_all({
                     "type": "status",
-                    "data": {"message": "Task completed (no result)"}
+                    "data": {"message": "Task completed"}
                 })
                 
         except Exception as e:
-            error_msg = f'Error: {str(e)[:200]}'
+            error_msg = f'Error: {str(e)[:100]}'
             logger.error(f'❌ Agent error: {str(e)}')
-            logger.error(f'❌ Error type: {type(e).__name__}')
-            
-            # Check if it's a browser-related error
-            if 'browser' in str(e).lower() or 'chrome' in str(e).lower() or 'playwright' in str(e).lower():
-                error_msg = f"Browser error: {str(e)[:150]}. This might be due to headless environment limitations."
-            
             await self.broadcast_to_all({
                 "type": "error",
                 "data": {"message": error_msg}
@@ -399,33 +381,11 @@ async def startup_event():
     
     # Initialize browser
     try:
-        # Detect if we're running in a headless environment (like Railway)
-        is_headless_env = os.getenv('RAILWAY_ENVIRONMENT') or os.getenv('VERCEL') or not os.getenv('DISPLAY')
-        headless_mode = is_headless_env or os.getenv('HEADLESS', 'false').lower() == 'true'
-        
-        logger.info(f"Environment detection - Headless: {headless_mode}, Railway: {bool(os.getenv('RAILWAY_ENVIRONMENT'))}")
-        
-        # Configure browser for headless environment
-        browser_config = BrowserConfig(
-            headless=headless_mode,
-            chrome_user_data_dir=None,  # Don't persist user data in containers
-            disable_security=True,  # Disable security features for headless
-            chrome_args=[
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-gpu",
-                "--disable-web-security",
-                "--disable-features=VizDisplayCompositor",
-                "--disable-background-timer-throttling",
-                "--disable-backgrounding-occluded-windows",
-                "--disable-renderer-backgrounding"
-            ] if headless_mode else None
-        )
+        browser_config = BrowserConfig(headless=False)
         voice_server.browser = Browser(config=browser_config)
-        logger.info(f"Browser initialized successfully. Headless: {headless_mode}, Type: {type(voice_server.browser)}")
+        logger.info(f"Browser initialized successfully. Type: {type(voice_server.browser)}")
     except Exception as e:
         logger.error(f"Failed to initialize browser: {e}")
-        logger.error(f"Environment variables: DISPLAY={os.getenv('DISPLAY')}, RAILWAY_ENVIRONMENT={os.getenv('RAILWAY_ENVIRONMENT')}")
         voice_server.browser = None
     
     # Optionally start voice listening on startup
@@ -462,19 +422,7 @@ async def websocket_endpoint(websocket: WebSocket):
 @app.get("/")
 async def root():
     """Health check endpoint"""
-    browser_status = "not initialized"
-    if voice_server.browser:
-        browser_status = "initialized"
-    
-    return {
-        "message": "Voice Browser Server is running",
-        "browser_status": browser_status,
-        "environment": {
-            "railway": bool(os.getenv('RAILWAY_ENVIRONMENT')),
-            "display": bool(os.getenv('DISPLAY')),
-            "headless": os.getenv('HEADLESS', 'auto')
-        }
-    }
+    return {"message": "Voice Browser Server is running"}
 
 @app.post("/start-voice")
 async def start_voice():
