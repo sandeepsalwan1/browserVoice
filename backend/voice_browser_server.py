@@ -10,8 +10,7 @@ from typing import Dict, Any, Optional
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from langchain_openai import ChatOpenAI
-from browser_use import Agent
-from browser_use.browser import BrowserSession, BrowserProfile
+from browser_use import Agent, Browser, BrowserConfig
 from dotenv import load_dotenv
 import speech_recognition as sr
 
@@ -29,7 +28,7 @@ class VoiceBrowserServer:
     
     def __init__(self):
         # Core components
-        self.browser_session: Optional[BrowserSession] = None  # Updated to use BrowserSession
+        self.browser: Optional[Browser] = None  # Add type hint for clarity
         
         # Setup LLM
         openai_api_key = os.getenv('OPENAI_API_KEY')
@@ -257,8 +256,8 @@ class VoiceBrowserServer:
             logger.warning(f"Command '{command}' ignored - already processing")
             return
         
-        # Check if browser session is initialized
-        if self.browser_session is None:
+        # Check if browser is initialized
+        if self.browser is None:
             error_msg = "Browser not initialized. Please restart the server."
             logger.error(error_msg)
             self.speak(error_msg)
@@ -279,12 +278,10 @@ class VoiceBrowserServer:
         
         try:
             logger.info(f"Creating agent with task: {command}")
-            # Create and run the agent - PASS THE BROWSER SESSION
+            # Create and run the agent - let Agent create its own browser if needed
             self.current_agent = Agent(
                 task=command,
                 llm=self.llm,
-                browser_session=self.browser_session,  # Pass the initialized browser session
-                enable_memory=False,    # Disable memory for consistency
             )
             
             result = await self.current_agent.run()
@@ -326,8 +323,6 @@ class VoiceBrowserServer:
         except Exception as e:
             error_msg = f'Error: {str(e)[:100]}'
             logger.error(f'❌ Agent error: {str(e)}')
-            # Log the full error for debugging
-            logger.error(f'Full error details: {str(e)}', exc_info=True)
             await self.broadcast_to_all({
                 "type": "error",
                 "data": {"message": error_msg}
@@ -362,8 +357,7 @@ class VoiceBrowserServer:
         """Cleanup resources"""
         self.should_stop = True
         self.voice_enabled = False
-        if self.browser_session:
-            await self.browser_session.close()
+        await self.browser.close()
 
 # Create FastAPI app
 app = FastAPI(title="Voice Browser Server")
@@ -385,68 +379,14 @@ async def startup_event():
     """Start the voice browser server"""
     logger.info("Starting Voice Browser Server...")
     
-    # Determine headless mode based on environment
-    # Check for DISPLAY variable (X11) or if running in production
-    is_production = os.getenv('RAILWAY_ENVIRONMENT') == 'production' or os.getenv('PORT') is not None
-    has_display = os.getenv('DISPLAY') is not None
-    
-    # Use headless mode if in production or no display available
-    headless = is_production or not has_display
-    
-    # Allow override via environment variable
-    if os.getenv('BROWSER_HEADLESS', '').lower() in ['true', '1', 'yes']:
-        headless = True
-    elif os.getenv('BROWSER_HEADLESS', '').lower() in ['false', '0', 'no']:
-        headless = False
-    
-    logger.info(f"Browser configuration - Headless: {headless}, Production: {is_production}, Display: {has_display}")
-    
-    # Initialize browser session using the new API
+    # Initialize browser
     try:
-        # Create a browser profile with the desired settings
-        browser_profile = BrowserProfile(
-            headless=headless,
-            # Use user_data_dir=None for ephemeral sessions in production
-            user_data_dir=None if is_production else '~/.config/browseruse/profiles/voice-browser',
-            # Add Chrome launch arguments for better compatibility
-            args=[
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-accelerated-2d-canvas',
-                '--no-first-run',
-                '--no-zygote',
-            ] + (['--single-process', '--disable-gpu'] if is_production else []),
-            # Disable automation detection
-            ignore_default_args=['--enable-automation', '--disable-extensions'],
-            # Set viewport and window size
-            viewport={'width': 1280, 'height': 720},
-            # Enable downloads and set permissions
-            accept_downloads=True,
-            permissions=['clipboard-read', 'clipboard-write', 'notifications'],
-            # Disable security only if explicitly needed
-            disable_security=False,  # Keep security enabled by default
-            # Set timeouts
-            minimum_wait_page_load_time=0.5,
-            wait_for_network_idle_page_load_time=1.0,
-            maximum_wait_page_load_time=5.0,
-        )
-        
-        # Create the browser session
-        voice_server.browser_session = BrowserSession(browser_profile=browser_profile)
-        
-        # Initialize the browser
-        await voice_server.browser_session.start()
-        
-        logger.info(f"✅ Browser session initialized successfully. Headless: {headless}")
+        browser_config = BrowserConfig(headless=False)
+        voice_server.browser = Browser(config=browser_config)
+        logger.info(f"Browser initialized successfully. Type: {type(voice_server.browser)}")
     except Exception as e:
-        logger.error(f"❌ Failed to initialize browser session: {e}", exc_info=True)
-        voice_server.browser_session = None
-        # Try to provide more helpful error message
-        if "executable" in str(e).lower():
-            logger.error("Browser executable not found. Make sure Chrome/Chromium is installed.")
-        elif "display" in str(e).lower():
-            logger.error("No display found. Consider using headless mode by setting BROWSER_HEADLESS=true")
+        logger.error(f"Failed to initialize browser: {e}")
+        voice_server.browser = None
     
     # Optionally start voice listening on startup
     # voice_server.start_voice_listening()
