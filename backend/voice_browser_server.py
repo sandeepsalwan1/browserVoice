@@ -405,7 +405,22 @@ async def startup_event():
         
         logger.info(f"Environment detection - Headless: {headless_mode}, Railway: {bool(os.getenv('RAILWAY_ENVIRONMENT'))}")
         
-        browser_config = BrowserConfig(headless=headless_mode)
+        # Configure browser for headless environment
+        browser_config = BrowserConfig(
+            headless=headless_mode,
+            chrome_user_data_dir=None,  # Don't persist user data in containers
+            disable_security=True,  # Disable security features for headless
+            chrome_args=[
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+                "--disable-web-security",
+                "--disable-features=VizDisplayCompositor",
+                "--disable-background-timer-throttling",
+                "--disable-backgrounding-occluded-windows",
+                "--disable-renderer-backgrounding"
+            ] if headless_mode else None
+        )
         voice_server.browser = Browser(config=browser_config)
         logger.info(f"Browser initialized successfully. Headless: {headless_mode}, Type: {type(voice_server.browser)}")
     except Exception as e:
