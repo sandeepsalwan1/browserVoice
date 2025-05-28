@@ -3,7 +3,8 @@ import os
 import json
 import logging
 from langchain_openai import ChatOpenAI
-from browser_use import Agent, Browser, BrowserConfig
+from browser_use import Agent
+from browser_use.browser import BrowserSession, BrowserProfile
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -20,7 +21,49 @@ Voice browser that communicates via WebSocket
 class VoiceBrowser:
 	def __init__(self, websocket):
 		self.websocket = websocket
-		self.browser = Browser(config=BrowserConfig(headless=False))
+		
+		# Determine headless mode based on environment
+		is_production = os.getenv('RAILWAY_ENVIRONMENT') == 'production' or os.getenv('PORT') is not None
+		has_display = os.getenv('DISPLAY') is not None
+		headless = is_production or not has_display
+		
+		# Allow override via environment variable
+		if os.getenv('BROWSER_HEADLESS', '').lower() in ['true', '1', 'yes']:
+			headless = True
+		elif os.getenv('BROWSER_HEADLESS', '').lower() in ['false', '0', 'no']:
+			headless = False
+		
+		logger.info(f"Browser configuration - Headless: {headless}")
+		
+		# Initialize browser session with proper configuration
+		browser_profile = BrowserProfile(
+			headless=headless,
+			# Use ephemeral session in production
+			user_data_dir=None if is_production else '~/.config/browseruse/profiles/voice-browser',
+			# Chrome launch arguments
+			args=[
+				'--no-sandbox',
+				'--disable-setuid-sandbox',
+				'--disable-dev-shm-usage',
+				'--disable-accelerated-2d-canvas',
+				'--no-first-run',
+				'--no-zygote',
+			] + (['--disable-gpu'] if headless else []),
+			# Disable automation detection
+			ignore_default_args=['--enable-automation', '--disable-extensions'],
+			# Keep security enabled
+			disable_security=False,
+			# Set viewport
+			viewport={'width': 1280, 'height': 720},
+			# Set timeouts
+			minimum_wait_page_load_time=0.5,
+			wait_for_network_idle_page_load_time=1.0,
+			maximum_wait_page_load_time=5.0,
+		)
+		
+		# Create browser session - don't start it yet
+		self.browser_session = BrowserSession(browser_profile=browser_profile)
+		self.browser_session_started = False
 		
 		# Setup LLM
 		openai_api_key = os.getenv('OPENAI_API_KEY')
@@ -66,6 +109,17 @@ class VoiceBrowser:
 		"""Main execution loop"""
 		await self.send_message("status", {"message": "Voice browser ready"})
 		
+		# Start the browser session if not already started
+		if not self.browser_session_started:
+			try:
+				await self.browser_session.start()
+				self.browser_session_started = True
+				logger.info("Browser session started successfully")
+			except Exception as e:
+				logger.error(f"Failed to start browser session: {e}")
+				await self.send_message("error", {"message": f"Browser initialization failed: {str(e)}"})
+				return
+		
 		try:
 			while not self.should_stop:
 				try:
@@ -76,11 +130,11 @@ class VoiceBrowser:
 						
 						self.is_processing = True
 						
-						# Run the agent
+						# Run the agent - PASS THE BROWSER SESSION
 						self.current_agent = Agent(
 							task=command,
 							llm=self.llm,
-							browser=self.browser,
+							browser_session=self.browser_session,  # Pass the initialized browser session
 							enable_memory=False,
 						)
 						
@@ -100,7 +154,7 @@ class VoiceBrowser:
 							error_msg = f'Error: {str(e)[:100]}'
 							await self.speak(error_msg, short=True)
 							await self.send_message("error", {"message": str(e)})
-							logger.error(f"Agent error: {e}")
+							logger.error(f"Agent error: {e}", exc_info=True)
 						finally:
 							self.current_agent = None
 						
@@ -130,7 +184,8 @@ class VoiceBrowser:
 			self.should_stop = True
 			if self.current_agent:
 				self.current_agent.stop()
-			await self.browser.close()
+			if self.browser_session_started and self.browser_session:
+				await self.browser_session.close()
 			logger.info("Voice browser cleaned up")
 		except Exception as e:
 			logger.error(f"Error during cleanup: {e}")

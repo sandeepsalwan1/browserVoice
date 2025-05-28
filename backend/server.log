@@ -1,0 +1,57 @@
+INFO     [telemetry] Anonymized telemetry enabled. See https://docs.browser-use.com/development/telemetry for more information.
+/Users/sandeep/Downloads/NeuSpring/projects/browserVoice/backend/voice_browser_server.py:383: DeprecationWarning: 
+        on_event is deprecated, use lifespan event handlers instead.
+
+        Read more about it in the
+        [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+        
+  @app.on_event("startup")
+/Users/sandeep/Downloads/NeuSpring/projects/browserVoice/backend/voice_browser_server.py:454: DeprecationWarning: 
+        on_event is deprecated, use lifespan event handlers instead.
+
+        Read more about it in the
+        [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+        
+  @app.on_event("shutdown")
+INFO:     Started server process [58128]
+INFO:     Waiting for application startup.
+INFO     [__main__] Starting Voice Browser Server...
+INFO     [__main__] Browser configuration - Headless: False, Production: False, Display: True
+INFO     [browser] 🌎 Launching local browser driver=playwright channel=chromium user_data_dir=~/.config/browseruse/profiles/voice-browser
+INFO     [__main__] ✅ Browser session initialized successfully. Headless: False
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     ('127.0.0.1', 55858) - "WebSocket /ws" [accepted]
+INFO     [__main__] WebSocket client client_1748392928883 connected
+INFO:     connection open
+INFO:     ('127.0.0.1', 55888) - "WebSocket /ws" [accepted]
+INFO     [__main__] WebSocket client client_1748392933691 connected
+INFO:     connection open
+INFO     [__main__] 🚀 Starting command execution: go to example.com and tell me what you see
+INFO     [__main__] 📡 Broadcasting to 2 clients: status - {'message': 'Processing: go to example.com and tell me what you see'}
+INFO     [__main__] Creating agent with task: go to example.com and tell me what you see
+ERROR    [__main__] ❌ Agent error: Failed to connect to LLM. Please check your API key and network connection.
+ERROR    [__main__] Full error details: Failed to connect to LLM. Please check your API key and network connection.
+Traceback (most recent call last):
+  File "/Users/sandeep/Downloads/NeuSpring/projects/browserVoice/backend/voice_browser_server.py", line 283, in execute_command
+    self.current_agent = Agent(
+                         ^^^^^^
+  File "/Users/sandeep/Downloads/NeuSpring/projects/browserVoice/backend/venv/lib/python3.12/site-packages/browser_use/utils.py", line 311, in wrapper
+    result = func(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/sandeep/Downloads/NeuSpring/projects/browserVoice/backend/venv/lib/python3.12/site-packages/browser_use/agent/service.py", line 213, in __init__
+    self._verify_and_setup_llm()
+  File "/Users/sandeep/Downloads/NeuSpring/projects/browserVoice/backend/venv/lib/python3.12/site-packages/browser_use/agent/service.py", line 1748, in _verify_and_setup_llm
+    self.tool_calling_method = self._set_tool_calling_method()
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/sandeep/Downloads/NeuSpring/projects/browserVoice/backend/venv/lib/python3.12/site-packages/browser_use/agent/service.py", line 727, in _set_tool_calling_method
+    return self._detect_best_tool_calling_method()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/sandeep/Downloads/NeuSpring/projects/browserVoice/backend/venv/lib/python3.12/site-packages/browser_use/agent/service.py", line 619, in _detect_best_tool_calling_method
+    raise ConnectionError('Failed to connect to LLM. Please check your API key and network connection.')
+ConnectionError: Failed to connect to LLM. Please check your API key and network connection.
+INFO     [__main__] 📡 Broadcasting to 2 clients: error - {'message': 'Error: Failed to connect to LLM. Please check your API key and network connection.'}
+INFO     [__main__] 🏁 Command execution finished: go to example.com and tell me what you see
+INFO     [__main__] 📡 Broadcasting to 2 clients: status - {'message': 'Ready for next command'}
+INFO     [__main__] WebSocket client client_1748392933691 disconnected
+INFO:     connection closed
